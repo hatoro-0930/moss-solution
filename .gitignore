@@ -1,0 +1,14 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+# Local/runtime artifacts
+node_modules/
+.DS_Store
+*.log
+__pycache__/
+uploads/
+*.tar.gz
+.openai/

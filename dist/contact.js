@@ -6,15 +6,27 @@ const success = document.getElementById('success-view');
 const submitButton = form.querySelector('[type="submit"]');
 const submitError = document.getElementById('submit-error');
 let submitting = false;
+let failure = null;
 const lang = () => window.mossLanguage?.() || 'ko';
 const copy = (ko,en) => lang() === 'en' ? en : ko;
+function failureMessage() {
+ const file = failure?.file || '';
+ switch (failure?.code) {
+  case 'blocked_in_archive': return copy(`‘${file}’ 압축 파일 안에 메일로 보낼 수 없는 형식(.exe, .js, .lib 등)의 파일이 있습니다. 해당 파일을 빼고 다시 압축해 첨부해주세요.`,`‘${file}’ contains file types that can’t be sent by email (such as .exe, .js or .lib). Please remove them, re-zip and attach it again.`);
+  case 'encrypted_archive': return copy(`‘${file}’은(는) 암호가 걸린 압축 파일이라 보낼 수 없습니다. 암호 없이 다시 압축해 첨부해주세요.`,`‘${file}’ is password-protected, so it can’t be sent. Please re-zip it without a password.`);
+  case 'invalid_file': return copy(`‘${file}’ 파일은 형식이나 내용이 첨부 기준과 맞지 않아 보낼 수 없습니다. 해당 파일을 빼고 다시 보내주세요.`,`‘${file}’ can’t be sent because its format or content doesn’t match the allowed file types. Please remove it and try again.`);
+  case 'too_large': case 'too_many_files': return copy('첨부 파일이 기준(최대 10개 · 파일당 10MB · 전체 20MB)을 넘었습니다. 파일을 줄여 다시 보내주세요.','Your attachments exceed the limit (up to 10 files · 10 MB each · 20 MB total). Please reduce them and try again.');
+  case 'rate_limited': case 'daily_limit': return copy('짧은 시간에 문의가 많이 접수되어 잠시 받을 수 없습니다. 작성한 내용은 유지되어 있습니다. 잠시 후 다시 시도하거나 moss.solutions25@gmail.com으로 연락해주세요.','We’re receiving too many inquiries right now. Your entries have been kept. Please try again shortly or email moss.solutions25@gmail.com.');
+  default: return copy('문의를 보내지 못했습니다. 작성한 내용은 유지되어 있습니다. 잠시 후 다시 시도하거나 moss.solutions25@gmail.com으로 연락해주세요.','We couldn’t send your inquiry. Your entries have been kept. Please try again or email moss.solutions25@gmail.com.');
+ }
+}
 const selectedLabel = () => options.find(o => o.dataset.value === serviceValue.value)?.querySelector('.option-label').textContent || copy('선택해주세요','Please select');
 function refreshLanguage() {
  document.getElementById('service-text').textContent = selectedLabel();
  document.getElementById('chosen-service').textContent = selectedLabel();
  document.getElementById('success-files').textContent = attachments.files().map(f => f.name).join(', ') || copy('없음','None');
  submitButton.innerHTML = '<span>' + (submitting ? copy('보내는 중…','Sending…') : copy('문의 보내기','Send inquiry')) + '</span><span aria-hidden="true">↗</span>';
- submitError.textContent = copy('문의를 보내지 못했습니다. 작성한 내용은 유지되어 있습니다. 잠시 후 다시 시도하거나 moss.solutions25@gmail.com으로 연락해주세요.','We couldn’t send your inquiry. Your entries have been kept. Please try again or email moss.solutions25@gmail.com.');
+ submitError.textContent = failureMessage();
 }
 
 form.addEventListener('submit', async event => {
@@ -28,6 +40,7 @@ form.addEventListener('submit', async event => {
   }
   const payload = {...Object.fromEntries(new FormData(form)), language: lang(), attachments: attachments.files()};
   submitting = true;
+  failure = null;
   submitButton.disabled = true;
   attachments.setBusy(true);
   refreshLanguage();
@@ -42,7 +55,8 @@ form.addEventListener('submit', async event => {
     formView.hidden = true;
     success.hidden = false;
     document.getElementById('success-title').focus();
-  } catch {
+  } catch (error) {
+    failure = error;
     refreshLanguage();
     submitError.hidden = false;
   } finally {

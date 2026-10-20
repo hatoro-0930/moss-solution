@@ -3,3 +3,4 @@
 .form-intro{font-size:14px;line-height:1.85;color:#b8bcae;margin:0 0 30px;word-break:keep-all}
 .submit:disabled{opacity:.55;cursor:wait;transform:none}
 #submit-error{font-size:13px;line-height:1.8;color:#edc3b5;margin:0}
+.form-trap{position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden}

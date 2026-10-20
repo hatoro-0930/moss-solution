@@ -22,6 +22,12 @@ test('a valid inquiry is sent to the company mailbox with its files', () => with
   assert.deepEqual(mail.attachments[0].content, PDF);
 }));
 
+test('inquiry numbers and received time use the Korean date', () => withServer(async ({ post, sent }) => {
+  const { body } = await post(inquiryForm());
+  assert.match(body.id, /^MS-20261020-[0-9A-F]{6}$/, '15:30 UTC on the 19th is already the 20th in Korea');
+  assert.ok(sent[0].text.includes('접수 일시: 2026. 10. 20. 오전 12:30 (한국시간)'), sent[0].text);
+}, { now: () => new Date('2026-10-19T15:30:00Z') }));
+
 test('missing or malformed fields are refused', () => withServer(async ({ post, sent }) => {
   const cases = [
     [{ name: '  ' }, 'name'],

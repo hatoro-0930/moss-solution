@@ -49,8 +49,10 @@ function createLimiter(limit, windowMs) {
   };
 }
 
+// Korea has no daylight saving time, so KST is always UTC+9. Intl is avoided here because a Node
+// built without full ICU data formats every locale like en-US ("10/20/2026").
 function newId(date) {
-  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(date).replaceAll('-', '');
+  const day = new Date(date.getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10).replaceAll('-', '');
   return `MS-${day}-${randomBytes(3).toString('hex').toUpperCase()}`;
 }
 
@@ -109,9 +111,9 @@ export function createApp({ mailer, staticDir, now = () => new Date() }) {
     if (daily.day !== id.slice(3, 11)) Object.assign(daily, { day: id.slice(3, 11), count: 0 });
     if (daily.count >= DAILY_SENDS) throw new InquiryError(429, 'daily_limit');
     const mail = renderInquiry({ ...fields, id, receivedAt: date.toISOString(), attachments: files });
-    await mailer.send({ id, ...mail, attachments: files.map(f => ({ filename: f.name, content: f.content })) });
+    const sent = await mailer.send({ id, ...mail, attachments: files.map(f => ({ filename: f.name, content: f.content })) });
     daily.count++;
-    return id;
+    return { id, providerId: sent?.id };
   }
 
   async function inquiries(req, res) {
@@ -155,8 +157,8 @@ export function createApp({ mailer, staticDir, now = () => new Date() }) {
     }
     const stats = { files: files.length, bytes: files.reduce((n, f) => n + f.size, 0) };
     try {
-      const id = await entry.promise;
-      log({ event: 'inquiry', outcome: 'sent', id, duplicate, ...stats, ms: Date.now() - started });
+      const { id, providerId } = await entry.promise;
+      log({ event: 'inquiry', outcome: 'sent', id, providerId, duplicate, ...stats, ms: Date.now() - started });
       return reply(res, 200, { ok: true, id });
     } catch (error) {
       if (error instanceof InquiryError) {
@@ -191,6 +193,8 @@ export function start(env = process.env) {
     event: 'listening', port,
     mail: env.MAIL_OUTBOX ? 'outbox' : mailer.configured ? 'resend' : 'missing',
     toOverride: Boolean(env.MAIL_TO_OVERRIDE),
+    // The email template formats the received time in ko-KR; false means Node lacks the ICU data.
+    koreanDates: Intl.DateTimeFormat.supportedLocalesOf(['ko-KR']).length > 0,
   }));
   process.on('SIGTERM', () => {
     server.close(() => process.exit(0));

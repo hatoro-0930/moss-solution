@@ -50,9 +50,9 @@ export function inquiryForm(overrides = {}, files = []) {
 }
 
 // Runs the app on a free port with a recording mailer (or the one given).
-export async function withServer(fn, { mailer } = {}) {
+export async function withServer(fn, { mailer, now } = {}) {
   const sent = [];
-  const app = createApp({ mailer: mailer || { configured: true, async send(mail) { sent.push(mail); return { id: 'test' }; } } });
+  const app = createApp({ mailer: mailer || { configured: true, async send(mail) { sent.push(mail); return { id: 'test' }; } }, now });
   const server = createServer(app);
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;

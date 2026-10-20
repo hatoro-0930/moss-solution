@@ -1,40 +1,77 @@
-# 문의 자동 발송 연결 안내
+# 문의 접수·메일 발송
 
-## 현재 상태
-이 사이트는 외부 검토용으로 공개되어 있습니다. 실제 문의 접수 기능은 아직 연결되지 않았습니다. 사용자 요청에 따라 화면을 실제 접수 흐름으로 표현했지만, 현재 `dist/inquiry-transport.js`는 항상 성공을 반환하는 모의 어댑터입니다. 메일 발송, 네트워크 요청, 서버 저장은 일어나지 않습니다. 공개 운영 전에 반드시 실제 API로 교체하세요.
+## 흐름
 
-## 연결 위치
-`dist/contact.js`가 `submitInquiry(payload)`를 호출합니다. `dist/inquiry-transport.js`의 이 함수만 교체하면 입력 검증, 처리 중 표시, 중복 제출 방지, 실패 안내, 성공 화면 흐름을 재사용할 수 있습니다.
+1. `dist/contact.js`가 입력을 검증하고 `dist/inquiry-transport.js`의 `submitInquiry(payload)`를 호출합니다.
+2. `submitInquiry`가 `POST /api/inquiries`로 multipart/form-data를 보냅니다.
+   필드: `name`, `company`, `email`, `service`(planning/circuit/layout/both/discuss), `message`, `schedule`, `language`(ko/en),
+   `moss_check`(사람에게 보이지 않는 봇 확인 칸), `elapsed`(페이지를 연 뒤 지난 ms), `key`(중복 방지 키), `attachments`(파일마다 반복).
+3. `server/server.mjs`가 검증한 뒤 `email/render-inquiry.mjs`로 메일을 만들어 [Resend](https://resend.com/docs/api-reference/emails/send-email)로 보냅니다. 첨부파일은 메일에 직접 붙습니다. 서버에는 아무것도 저장하지 않습니다.
+4. Resend가 발송을 접수했을 때만 `{ "ok": true, "id": "MS-…" }`를 돌려주고, 그때만 완료 화면이 뜹니다. 수신함 도착 자체를 보장하는 응답은 아니므로 전달 상태는 Resend 대시보드에서 확인합니다.
 
-권장 API: `POST /api/inquiries`. 파일 포함 요청은 multipart/form-data, 응답은 JSON을 사용합니다. 파일을 먼저 별도 업로드하는 구조라면 문의 API에는 검증된 첨부 식별자만 JSON으로 전달하세요.
-입력: name, company(선택), email, service, message, schedule(선택), language(ko/en), attachments(File 배열). service는 planning/circuit/layout/both/discuss 중 하나입니다.
-성공 응답: HTTP 2xx 및 `{ "ok": true }`. 그 외에는 예외를 발생시키거나 ok:false를 반환하세요. 성공 화면은 함수가 ok:true를 반환한 경우에만 표시됩니다.
+## 메일
 
-## 서버 구현
-- 수신 주소는 서버에서 `moss.solutions25@gmail.com`으로 고정합니다. 클라이언트가 수신처를 정하게 하지 마세요.
-- 인증된 발신 주소를 From으로, 고객 email을 Reply-To로 설정합니다.
-- SMTP 또는 발송 서비스 인증정보는 서버 환경변수에만 저장합니다.
-- 서버에서도 필수 항목, 길이, 이메일 형식과 service 허용값을 검증합니다.
-- 메일 내용은 일반 텍스트로 구성하거나 HTML 이스케이프를 적용합니다. 헤더 삽입을 차단합니다.
-- 발송 요청을 수락했거나 신뢰할 수 있는 작업 큐에 저장한 뒤에만 ok:true를 반환합니다. 수신함 도착 자체를 보장하는 응답은 아닙니다.
-- 타임아웃, 반복 제출 제한 및 필요에 맞는 스팸 방지를 구현합니다. 오류 로그에 전체 문의 내용을 노출하지 않습니다.
-- 운영 전 개인정보 처리 안내와 수집·보관 방침을 실제 운영 방식에 맞게 준비합니다.
+- 받는 주소: moss.solutions25@gmail.com — 서버(`render-inquiry.mjs`)에 고정. 클라이언트가 정할 수 없습니다.
+- 보내는 주소(From): `MAIL_FROM` — Resend에서 인증한 moss-solution.com 주소(예: `moss solution <noreply@moss-solution.com>`).
+  받는 주소와 같은 Gmail 주소로 보내면 Gmail이 Reply-To를 무시하고 답장을 자기 자신에게 보내는 사례가 있어 다른 주소를 씁니다.
+- Reply-To: 검증한 문의자 이메일 — Gmail에서 «답장»을 누르면 문의자에게 갑니다.
+- 제목: `[moss 문의] {문의 유형} | {회사 · }{이름}`. HTML과 텍스트 본문을 함께 보내고, 입력값은 HTML 이스케이프합니다.
+- 문의 번호: `MS-YYYYMMDD-XXXXXX` (한국시간 날짜 + 임의 6자리).
+- 고객용 자동 접수 확인 메일은 보내지 않습니다.
 
-## 검수
-유효한 문의의 실제 수신 및 Reply-To, 잘못된 입력, 서버 오류, 중복 제출, 재시도, 모바일 입력과 키보드 접근성을 확인하세요. 메일 발송 장애 시 입력 내용을 유지해야 합니다.
+## 서버 검증
 
+- 입력: 이름 1–80자, 회사 120자 이하, 이메일 형식·254자 이하(줄바꿈·쉼표 등 헤더 삽입 불가), 유형은 허용값만, 내용 1–5000자, 일정 120자 이하. 줄바꿈을 정리하고 제어 문자를 지웁니다.
+- 첨부 규칙: `dist/file-policy.js`의 확장자·최대 10개·파일당 10 MiB·합계 20 MiB를 서버도 그대로 씁니다. 요청 본문이 22 MiB를 넘으면 읽기 전에 거절합니다.
+- 첨부 내용(`server/files.mjs`):
+  - PDF·PNG·JPG·WebP·ZIP·DOCX·XLSX는 파일 서명이 확장자와 맞아야 합니다. 실행 파일(Windows·Linux·macOS)은 확장자와 관계없이 거절합니다.
+  - ZIP은 풀지 않고 목록만 읽습니다. [Gmail이 막는 형식](https://support.google.com/mail/answer/6590)(.exe, .js, .lib 등)이나 암호 걸린 항목이 있으면 거절합니다.
+    Gmail은 그런 메일을 통째로 반송해 문의가 조용히 사라지므로, 접수 단계에서 이유를 알려 줍니다. 옛 KiCad 프로젝트의 `*-cache.lib`가 여기 걸립니다.
+  - 악성코드 검사는 Gmail의 첨부 검사에 맡깁니다.
+- 파일명: 경로, 제어 문자, 확장자를 속이는 방향 제어 문자를 지우고 150자로 줄입니다.
 
-## 이메일 템플릿
-`email/render-inquiry.mjs`의 renderInquiry를 서버에서 호출하세요. HTML과 일반 텍스트, 제목, 고정 수신처, Reply-To를 반환합니다. `email/preview.html`은 가상 정보로 작성한 디자인 예시이며 공개 사이트에는 포함되지 않습니다.
-서버가 id와 receivedAt을 생성하고, 사용자 입력의 길이·이메일 형식·허용된 유형을 검증한 뒤 템플릿에 전달하세요. From은 인증된 회사 발신 주소로 별도 설정하세요. 입력한 본문은 번역하지 않으며 문의 언어를 별도 표시합니다. 고객 자동 회신은 현재 구현 범위에 포함하지 않았습니다. 첨부파일 선택 UI는 구현했으며 실제 저장·전송은 아래 기준으로 연결해야 합니다.
-KO/EN 선택은 브라우저에 보관되며 전환해도 폼 입력은 유지됩니다. 제출 시 language에 선택 언어가 포함됩니다.
+## 응답
 
+화면 안내 문구는 `dist/contact.js`의 `failureMessage()`에 있습니다. 실패해도 입력과 선택한 파일은 그대로 남습니다.
 
-## 다중 첨부파일 연결
-- 현재 브라우저 메모리에 File 객체를 보관합니다. 새로고침하거나 새 문의를 작성하면 초기화되며 실제 서버 업로드나 이메일 첨부는 하지 않습니다.
-- attachments는 File[]이므로 JSON.stringify로 전송하면 안 됩니다. API 연동 시 multipart/form-data의 반복되는 attachments 필드에 파일을 담거나, 서버에서 발급한 업로드 URL로 별도 전송하세요. FormData를 사용하면 Content-Type 경계는 브라우저가 설정하게 두세요.
-- 초기 UI 정책: 최대 10개, 개별 10 MiB, 합계 20 MiB. 메일 서비스의 MIME 인코딩 후 크기 제한에 맞춰 운영 정책을 최종 확정하세요. 전체 20 MiB는 인코딩 후 메일 제한을 넘을 수 있으므로 비공개 다운로드 링크 전달 방식도 가능합니다.
-- 허용 확장자는 dist/file-policy.js에 정의되어 있습니다. 회로 CAD 원본은 ZIP으로도 첨부 가능합니다. 서버는 개수/크기/확장자뿐 아니라 파일 내용도 검증하고, 악성파일 검사 및 파일명 정규화를 수행해야 합니다. ZIP은 업로드 시 자동으로 풀지 마세요.
-- 서버 저장 시 비공개 보관, 접근 제한과 만료 정책을 적용하세요. 메일에는 검증된 파일만 첨부하거나 만료되는 링크를 넣고, 검증 전 파일을 공개 URL로 노출하지 마세요.
-- 업로드 완료 및 문의 접수 성공을 서버에서 확인한 뒤 ok:true를 반환하세요. 실패하면 입력 내용과 파일 선택을 유지해야 합니다.
-- renderInquiry의 attachments에는 서버에서 검증한 name/size 메타데이터를 전달하세요. 이 함수는 파일 목록을 본문에 표시할 뿐, 바이너리 첨부는 메일 발송 SDK에 별도로 전달해야 합니다.
+| HTTP | `code` | 뜻 |
+| --- | --- | --- |
+| 200 | — | 발송 접수(`ok: true`) |
+| 400 | `invalid` (+`field`) | 입력값 오류 |
+| 400 | `too_fast` | 페이지를 연 뒤 3초 안에 제출(봇 방지) — 다시 보내면 됩니다 |
+| 400 | `too_many_files` / `invalid_form` | 첨부 11개 이상 / multipart 해석 실패 |
+| 403 | `forbidden_origin` | 다른 사이트 페이지에서 보낸 요청 |
+| 413 | `too_large` (+`file`) | 용량 초과 |
+| 415 | `unsupported_media_type` | multipart가 아님 |
+| 422 | `invalid_file` · `blocked_in_archive` · `encrypted_archive` (+`file`) | 첨부 거절 |
+| 429 | `rate_limited` · `daily_limit` | 요청 제한 |
+| 502 | `send_failed` | Resend 오류·시간 초과 — 같은 내용으로 다시 보내도 됩니다 |
+| 503 | `mail_not_configured` | 서버에 메일 키가 없음 |
+
+## 스팸·과다 요청·중복
+
+- 숨김 칸 `moss_check`가 채워진 요청은 성공처럼 응답하고 버립니다.
+- 페이지를 연 뒤 3초 안의 제출, 다른 사이트에서 온 요청(Origin)을 거절합니다.
+- 접속 IP(`CF-Connecting-IP`)당 10분에 8번, 전체 하루 80통(Resend 무료 한도 100통 아래)까지 받습니다.
+- 브라우저는 같은 내용을 다시 보낼 때 같은 `key`를 씁니다. 서버는 같은 키를 1시간 동안 한 번만 발송합니다(동시에 와도 마찬가지). 발송에 실패한 키는 다시 보낼 수 있습니다.
+- 요청 제한과 중복 방지는 메모리에 있어 재시작하면 초기화됩니다. API 서버는 1대로 운영합니다.
+
+## 환경변수
+
+| 이름 | 용도 |
+| --- | --- |
+| `RESEND_API_KEY` | Resend API 키(발송 권한만). 서버 비밀 저장소에만 둡니다 |
+| `MAIL_FROM` | 보내는 주소 |
+| `MAIL_TO_OVERRIDE` | 테스트할 때만 받는 주소를 바꿉니다(예: `delivered@resend.dev`) |
+| `MAIL_OUTBOX` | 보내지 않고 이 폴더에 저장(로컬 개발) |
+| `PORT` / `HOST` | 기본 3000 / 0.0.0.0 |
+| `STATIC_DIR` | 사이트 파일도 서빙(로컬 개발). 운영에서는 nginx가 서빙 |
+
+## 로그
+
+접수마다 JSON 한 줄을 남깁니다: `outcome`, 문의 번호, 첨부 개수·용량, 처리 시간, 실패 이유. 이름·이메일·문의 내용·파일명은 남기지 않습니다.
+
+## 남은 검수
+
+- 운영 키를 넣은 뒤 실제 Gmail 수신, 답장 대상, 첨부 열림 확인.
+- 개인정보 처리 안내: 수집 항목(이름·회사·이메일·문의 내용·첨부), 목적(문의 응대), 보관 기간, 처리 위탁(Resend — 메일 발송, 발송 기록 30일 보관 / Google — 수신함)과 국외 이전 여부를 소유자와 확정해 폼에 표시해야 합니다.

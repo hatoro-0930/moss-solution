@@ -8,8 +8,10 @@
 
 ## 현재 상태 — 먼저 읽어주세요
 
-**프런트엔드 UI는 구현되어 있으나 실제 문의 접수·이메일 발송·파일 업로드는 구현되지 않았습니다.**
-`dist/inquiry-transport.js`는 항상 성공을 반환하는 모의 어댑터입니다. 화면에 접수 완료가 표시되어도 데이터가 저장되거나 메일이 발송되지 않습니다. 실제 고객 접수용으로 운영하기 전에 반드시 서버 API로 교체해야 합니다.
+문의폼은 `server/`의 문의 API(`POST /api/inquiries`)로 전송됩니다. 서버가 입력·첨부를 검증한 뒤 [Resend](https://resend.com)로 moss.solutions25@gmail.com에 메일을 보내고, 첨부파일은 메일에 직접 붙습니다. 서버에는 문의 내용이나 파일을 저장하지 않습니다.
+
+- 발송에는 서버 환경변수 `RESEND_API_KEY`(Resend에서 moss-solution.com 도메인 인증 후 발급)와 `MAIL_FROM`이 필요합니다. 키가 없으면 API가 503(`mail_not_configured`)으로 답하고 화면에는 전송 실패 안내가 뜹니다. 가짜 접수 완료는 더 이상 표시하지 않습니다.
+- 접수 완료 화면은 서버가 메일 발송을 접수했을 때만 표시됩니다. 상세 동작은 [CONTACT-INTEGRATION.md](CONTACT-INTEGRATION.md)를 보세요.
 
 ## 로컬 실행
 
@@ -24,7 +26,17 @@ python3 -m http.server 4173 --directory dist
 - 홈페이지: http://localhost:4173/
 - 문의 페이지: http://localhost:4173/contact.html
 
-파일을 직접 더블클릭하면 ES 모듈이 정상 실행되지 않을 수 있으므로 HTTP 서버를 사용하세요. Python 서버는 로컬 확인용이며 운영 배포용이 아닙니다.
+파일을 직접 더블클릭하면 ES 모듈이 정상 실행되지 않을 수 있으므로 HTTP 서버를 사용하세요. Python 서버는 로컬 확인용이며 운영 배포용이 아닙니다. Python 서버에는 문의 API가 없어 문의를 보내면 실패 안내가 뜹니다.
+
+문의 전송까지 확인하려면 Node.js 22 이상으로 API 서버를 띄웁니다(설치할 패키지 없음). `MAIL_OUTBOX`를 주면 메일을 보내지 않고 그 폴더에 메일 HTML·정보·첨부파일을 저장합니다.
+
+```sh
+HOST=127.0.0.1 PORT=4180 STATIC_DIR=dist MAIL_FROM="moss solution <noreply@moss-solution.com>" MAIL_OUTBOX=outbox node server/server.mjs
+node --test "server/test/*.test.mjs"
+```
+
+- 사이트와 문의 API: http://127.0.0.1:4180/contact.html
+- 서버는 페이지를 연 뒤 3초 안에 보낸 문의를 거절합니다(봇 방지).
 
 이메일 디자인은 별도 서버로 확인할 수 있습니다.
 
@@ -44,12 +56,17 @@ http://localhost:4174/preview.html — 가상 문의 정보로 작성한 예시�
 | `dist/contact.css` | 문의 페이지 스타일 |
 | `dist/refinement.css` | 최종 반응형·정렬·줄바꿈 보정. 앞선 CSS 뒤에 로드 |
 | `dist/language.js` | 언어 전환과 선택 유지 |
-| `dist/contact.js` | 입력 검증·전송 상태·완료 흐름 |
-| `dist/attachments.js` | 파일 선택·추가·개별 삭제. 브라우저 메모리에만 보관 |
-| `dist/file-policy.js` | 첨부 형식·개수·용량 제한 |
-| `dist/inquiry-transport.js` | **실제 서버 API로 교체할 위치** |
+| `dist/contact.js` | 입력 검증·전송 상태·완료 흐름, 서버 오류 코드별 안내 문구 |
+| `dist/attachments.js` | 파일 선택·추가·개별 삭제. 전송 전까지 브라우저 메모리에 보관 |
+| `dist/file-policy.js` | 첨부 형식·개수·용량 제한 — 브라우저와 서버가 같이 사용 |
+| `dist/inquiry-transport.js` | 문의를 `POST /api/inquiries`로 전송. 재전송 시 같은 키로 중복 발송 방지 |
 | `dist/assets/` | 사이트 이미지 |
 | `email/render-inquiry.mjs` | 서버용 수신 이메일 HTML·텍스트 템플릿 |
+| `server/server.mjs` | 문의 API — 요청 제한·중복 방지·발송. `STATIC_DIR`을 주면 사이트도 서빙(로컬용) |
+| `server/inquiry.mjs` | 입력값·첨부 개수·용량 검증 |
+| `server/files.mjs` | 첨부 내용 검사 — 형식 위장, 실행 파일, Gmail이 막는 형식이 든 ZIP·암호 걸린 ZIP |
+| `server/mailer.mjs` | Resend 발송. `MAIL_OUTBOX`면 폴더에 저장 |
+| `server/test/` | 서버 테스트 (`node --test`) |
 | `CONTACT-INTEGRATION.md` | 문의·첨부·메일 연동 상세 가이드 |
 | `HANDOFF.md` | 후속 업무와 완료 기준 |
 
@@ -61,15 +78,18 @@ http://localhost:4174/preview.html — 가상 문의 정보로 작성한 예시�
 - 한국어/영어 전환과 localStorage 선택 유지
 - 필수 입력 검증, 문의 유형 선택, 전송 중 버튼 잠금, 오류·완료 화면
 - 다중 파일 선택, 추가 선택, 삭제, 중복 및 형식·개수·용량 검사
-- 초기 첨부 한도: 10개 / 개별 10 MiB / 합계 20 MiB
+- 첨부 한도: 10개 / 개별 10 MiB / 합계 20 MiB (Resend 한도 40 MB는 base64 인코딩 후 기준이라 여유 있음)
 - 수신 이메일 템플릿과 첨부파일 목록 표시
+- 서버 접수·메일 발송·첨부 전달, 서버 검증 실패·발송 실패 시 이유 안내와 입력 유지
 
 외부 Google Fonts에서 Space Grotesk와 Noto Sans KR을 불러옵니다. 네트워크 접근이 제한된 운영 환경에서는 폰트 제공 방식을 검토하세요.
 
 ## 배포와 소스 관리
 
-운영 서버는 `dist/`만 웹 루트로 제공하세요. `/contact`를 사용할 경우 `contact.html`로 매핑하고, 기존 `.html` 링크도 처리해야 합니다. 서버 API와 HTTPS는 별도 구성해야 합니다.
+운영 사이트 https://moss-solution.com 은 사내 서버(k3s)에서 별도 배포 리포로 배포합니다. nginx가 `dist/`를 웹 루트로 제공하고(`/contact` → `contact.html`, www·http는 대표 주소로 리다이렉트), `/api/`는 `server/server.mjs`로 넘깁니다. 메일 키는 서버의 비밀 저장소에만 둡니다.
 
-이 저장소는 디자인 검토 사이트의 최종 소스를 인계한 독립 저장소입니다. **GitHub에 push해도 기존 ChatGPT Sites 주소가 자동 업데이트되지는 않습니다.** 자동 배포가 필요하면 운영 호스팅을 결정한 뒤 설정하세요.
+**운영 배포는 `cluster` 브랜치 기준입니다.** 배포할 때 GitHub의 `cluster` 브랜치에서 파일을 꺼내므로, push하지 않은 변경은 배포되지 않습니다. `main`은 처음 인계받은 디자인 소스입니다.
+
+**GitHub에 push해도 운영 사이트가 자동으로 바뀌지 않습니다.** 배포 리포에서 배포해야 반영됩니다. 기존 ChatGPT Sites 디자인 검토 주소도 자동 업데이트되지 않습니다.
 
 공개 저장소에는 인증키·실제 고객 문의·첨부파일·도메인 계정 정보를 올리지 마세요. 상세 후속 작업은 [HANDOFF.md](HANDOFF.md)를 확인하세요.

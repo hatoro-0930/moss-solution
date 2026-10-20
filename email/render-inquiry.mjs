@@ -1,5 +1,5 @@
 // Server-side template. Validate inputs and create id/receivedAt on the server.
-const services = {planning:'아이디어 구체화 상담',circuit:'회로 설계',layout:'PCB 레이아웃',both:'회로 설계 및 PCB 레이아웃',discuss:'상담 후 결정'};
+export const services = {planning:'아이디어 구체화 상담',circuit:'회로 설계',layout:'PCB 레이아웃',both:'회로 설계 및 PCB 레이아웃',discuss:'상담 후 결정'};
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const single = value => String(value || '').replace(/[\r\n]/g,' ').trim();
 export function renderInquiry({name,company,email,service,message,schedule,language,id,receivedAt,attachments=[]}) {

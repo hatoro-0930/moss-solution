@@ -49,8 +49,8 @@ function createLimiter(limit, windowMs) {
   };
 }
 
-// Korea has no daylight saving time, so KST is always UTC+9. Intl is avoided here because a Node
-// built without full ICU data formats every locale like en-US ("10/20/2026").
+// Korea has no daylight saving time, so KST is always UTC+9. Intl is avoided because its output
+// depends on the Node build's ICU data (without full data, en-CA comes out as "10/20/2026").
 function newId(date) {
   const day = new Date(date.getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10).replaceAll('-', '');
   return `MS-${day}-${randomBytes(3).toString('hex').toUpperCase()}`;
@@ -193,8 +193,6 @@ export function start(env = process.env) {
     event: 'listening', port,
     mail: env.MAIL_OUTBOX ? 'outbox' : mailer.configured ? 'resend' : 'missing',
     toOverride: Boolean(env.MAIL_TO_OVERRIDE),
-    // The email template formats the received time in ko-KR; false means Node lacks the ICU data.
-    koreanDates: Intl.DateTimeFormat.supportedLocalesOf(['ko-KR']).length > 0,
   }));
   process.on('SIGTERM', () => {
     server.close(() => process.exit(0));

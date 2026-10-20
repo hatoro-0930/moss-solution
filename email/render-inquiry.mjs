@@ -2,10 +2,16 @@
 export const services = {planning:'아이디어 구체화 상담',circuit:'회로 설계',layout:'PCB 레이아웃',both:'회로 설계 및 PCB 레이아웃',discuss:'상담 후 결정'};
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const single = value => String(value || '').replace(/[\r\n]/g,' ').trim();
+// "2026. 10. 20. 오전 11:23" in Korea time (UTC+9, no daylight saving). Built by hand because
+// Intl output depends on the Node build's ICU data (CLDR 48 prints "AM" for ko-KR).
+const koreanTime = value => {
+ const t = new Date(new Date(value).getTime() + 9 * 3600 * 1000), h = t.getUTCHours();
+ return `${t.getUTCFullYear()}. ${t.getUTCMonth() + 1}. ${t.getUTCDate()}. ${h < 12 ? '오전' : '오후'} ${h % 12 || 12}:${String(t.getUTCMinutes()).padStart(2, '0')}`;
+};
 export function renderInquiry({name,company,email,service,message,schedule,language,id,receivedAt,attachments=[]}) {
  const type = services[service];
  if (!type || !name || !email || !message || !id || !receivedAt) throw new Error('Missing or invalid inquiry data');
- const date = new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',dateStyle:'medium',timeStyle:'short'}).format(new Date(receivedAt));
+ const date = koreanTime(receivedAt);
  const subject = `[moss 문의] ${type} | ${company ? single(company)+' · ' : ''}${single(name)}`;
  const rows = [['문의자',name],['회사·팀명',company || '미입력'],['회신 이메일',email],['희망 일정',schedule || '미입력'],['문의 언어',language === 'en' ? 'English' : '한국어'],['접수 일시',date+' (한국시간)'],['문의 번호',id]];
  const attachmentList=attachments.length ? attachments.map(f=>`${f.name} (${Math.ceil(f.size/1024)} KB)`).join('\n') : '없음';
